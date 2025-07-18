@@ -73,19 +73,15 @@ def initialize_database():
     print("Database initialized successfully.")
 
 def mark_date_for_reprocessing(date_str):
-    """Marks all records for a specific date as unprocessed for reprocessing."""
+    """Sets the 'processed' flag to 0 for all records on a specific date."""
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        UPDATE activity_log 
-        SET processed = 0, updated_at = CURRENT_TIMESTAMP 
-        WHERE log_date = ?
-    """, (date_str,))
-    affected_rows = cursor.rowcount
-    conn.commit()
-    conn.close()
-    print(f"Marked {affected_rows} records for {date_str} as unprocessed.")
-    return affected_rows
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE activity_log SET processed = 0 WHERE log_date = ?", (date_str,))
+        conn.commit()
+        print(f"Marked all entries for {date_str} for reprocessing.")
+    finally:
+        conn.close()
 
 def upsert_activity_data(data_list):
     """
@@ -274,6 +270,17 @@ def should_update_current_day(min_interval_minutes=15):
     except Exception as e:
         return True, f"Error parsing last update time: {e}"
 
+def get_pending_time_entries():
+    """Retrieves all time entries with a 'pending' status."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM time_entries WHERE status = 'pending' ORDER BY entry_date DESC")
+        entries = cursor.fetchall()
+        return [dict(row) for row in entries]
+    finally:
+        conn.close()
+
 def update_time_entry(entry_id, status=None, notes=None):
     """Updates a time entry's status and/or notes without affecting time aggregation."""
     conn = get_db_connection()
@@ -330,6 +337,16 @@ def update_time_entry(entry_id, status=None, notes=None):
         print(f"Database error updating entry: {e}")
         conn.rollback()
         return False
+    finally:
+        conn.close()
+
+def update_time_entry_status(entry_id: int, status: str):
+    """Updates the status of a specific time entry."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("UPDATE time_entries SET status = ? WHERE entry_id = ?", (status, entry_id))
+        conn.commit()
     finally:
         conn.close()
 

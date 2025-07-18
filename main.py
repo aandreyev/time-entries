@@ -4,116 +4,26 @@ import database
 import fetcher
 import processor
 import reporter
+import uvicorn
+from api import app as fastapi_app
+import jobs
 
 def handle_fetch(args):
-    """Handles the 'fetch' command."""
-    if args.current:
-        # Current day mode - fetch only today's data
-        today = datetime.now().strftime('%Y-%m-%d')
-        
-        # Check if we should update (unless forced)
-        should_update, reason = database.should_update_current_day(min_interval_minutes=15)
-        
-        if not should_update and not getattr(args, 'force', False):
-            print(f"⏸️ Skipping current day update: {reason}")
-            print("💡 Use --force to update anyway, or wait for the interval to pass.")
-            return
-        
-        print(f"Fetching current day data for {today}...")
-        print(f"📄 Reason: {reason}")
-        
-        # Clear existing data for today to ensure complete refresh
-        database.mark_date_for_reprocessing(today)
-        
-        # Fetch raw data from the API
-        raw_data = fetcher.fetch_data_for_date(today)
-        
-        if raw_data and 'rows' in raw_data:
-            # Prepare data for insertion (clean slate approach)
-            headers = raw_data['row_headers']
-            data_to_insert = []
-            try:
-                # Get column indices
-                time_idx = headers.index('Time Spent (seconds)')
-                act_idx = headers.index('Activity')
-                cat_idx = headers.index('Category')
-                prod_idx = headers.index('Productivity')
-                doc_idx = headers.index('Document')
-                
-                for row in raw_data['rows']:
-                    data_to_insert.append((
-                        today,
-                        row[time_idx],
-                        row[act_idx],
-                        row[cat_idx],
-                        row[prod_idx],
-                        row[doc_idx]
-                    ))
-                
-                # Insert the fresh data (all records will be unprocessed)
-                if data_to_insert:
-                    database.upsert_activity_data(data_to_insert)
-                    print(f"✅ Updated current day with {len(data_to_insert)} activity records.")
-                    
-                    # Record this update
-                    database.set_last_current_day_update(today)
-                    
-                    # Auto-process the current day data
-                    print("🔄 Auto-processing current day data...")
-                    processor.process_data_for_date(today, debug=False)
-                else:
-                    print("⚠️ No current day data to update.")
-            except ValueError as e:
-                print(f"Error processing data for {today}: Missing expected column - {e}")
-        else:
-            print(f"No current day data returned from API.")
-    else:
-        # Original multi-day mode
-        print(f"Fetching data for the last {args.days} day(s).")
-        for i in range(args.days):
-            date = datetime.now() - timedelta(days=i)
-            date_str = date.strftime('%Y-%m-%d')
-            
-            # Clear existing data for this date to ensure complete refresh
-            database.mark_date_for_reprocessing(date_str)
-            
-            # Fetch raw data from the API
-            raw_data = fetcher.fetch_data_for_date(date_str)
-            
-            if raw_data and 'rows' in raw_data:
-                # Prepare data for insertion (clean slate approach)
-                headers = raw_data['row_headers']
-                data_to_insert = []
-                try:
-                    # Get column indices
-                    time_idx = headers.index('Time Spent (seconds)')
-                    act_idx = headers.index('Activity')
-                    cat_idx = headers.index('Category')
-                    prod_idx = headers.index('Productivity')
-                    doc_idx = headers.index('Document')
-                    
-                    for row in raw_data['rows']:
-                        data_to_insert.append((
-                            date_str,
-                            row[time_idx],
-                            row[act_idx],
-                            row[cat_idx],
-                            row[prod_idx],
-                            row[doc_idx]
-                        ))
-                    
-                    # Insert the fresh data (all records will be unprocessed)
-                    if data_to_insert:
-                        database.upsert_activity_data(data_to_insert)
-                except ValueError as e:
-                    print(f"Error processing data for {date_str}: Missing expected column - {e}")
-            else:
-                print(f"No data returned for {date_str}.")
+    """Handles the fetch command."""
+    print("Received fetch command via CLI.")
+    jobs.run_fetch_job(days=args.days)
 
 def handle_process(args):
-    """Handles the 'process' command."""
-    print(f"Processing data for {args.date}...")
-    processor.process_data_for_date(args.date, args.debug)
+    """Handles the process command."""
+    if args.all:
+        print("Received process --all command via CLI.")
+        jobs.run_process_job()
+    elif args.date:
+        print(f"Received process --date {args.date} command via CLI.")
+        processor.process_data_for_date(args.date, debug=args.debug)
+    else:
+        print("Processing unprocessed data.")
+        jobs.run_process_job()
 
 def handle_process_all(args):
     """Handles the 'process-all' command."""
@@ -187,6 +97,16 @@ def handle_update(args):
     print(f"Updating time entry {args.id}...")
     database.update_time_entry(args.id, status=args.status, notes=args.notes)
 
+def handle_clear(args):
+    """Handles the 'clear' command."""
+    print("Clearing all processed time entries...")
+    database.clear_time_entries()
+
+def handle_init_db(args):
+    """Handles the 'initdb' command."""
+    print("Initializing the database...")
+    database.initialize_database()
+
 def main():
     """Main entry point for the application."""
     parser = argparse.ArgumentParser(description="RescueTime Data Fetcher and Reporter.")
@@ -206,6 +126,7 @@ def main():
     parser_process = subparsers.add_parser("process", help="Process raw data into time entries.")
     parser_process.add_argument("--date", type=str, default=yesterday, help=f"Date to process in YYYY-MM-DD format (default: {yesterday}).")
     parser_process.add_argument("--debug", action="store_true", help="Run in debug mode to see cleaning analysis.")
+    parser_process.add_argument("--all", action="store_true", help="Process all unprocessed data.")
     parser_process.set_defaults(func=handle_process)
     
     # --- Process All Command ---
@@ -233,14 +154,20 @@ def main():
     parser_auto_update.add_argument("--interval", type=int, default=15, help="Minimum interval in minutes between updates (default: 15).")
     parser_auto_update.add_argument("--force", action="store_true", help="Force update even if interval is not met.")
     parser_auto_update.set_defaults(func=handle_auto_update)
-    
+
+    # --- New Subparser for running the API ---
+    run_api_parser = subparsers.add_parser("run-api", help="Run the FastAPI server for the web interface.")
+    run_api_parser.add_argument("--host", type=str, default="127.0.0.1", help="Host for the API server.")
+    run_api_parser.add_argument("--port", type=int, default=8000, help="Port for the API server.")
+    run_api_parser.set_defaults(func=lambda args: uvicorn.run(fastapi_app, host=args.host, port=args.port))
+
     # --- Clear Command ---
     parser_clear = subparsers.add_parser("clear", help="Clear all processed time entries.")
-    parser_clear.set_defaults(func=lambda args: database.clear_time_entries())
+    parser_clear.set_defaults(func=handle_clear)
 
     # --- Init DB Command ---
     parser_init_db = subparsers.add_parser("initdb", help="Initialize the database.")
-    parser_init_db.set_defaults(func=lambda args: database.initialize_database())
+    parser_init_db.set_defaults(func=handle_init_db)
 
     args = parser.parse_args()
     args.func(args)
