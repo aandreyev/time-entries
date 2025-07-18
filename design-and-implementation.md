@@ -69,4 +69,30 @@ The API includes interactive documentation (Swagger UI) available at the `/docs`
 
 -   **Webhooks**: Implement webhook support to notify the main ALP system when new time entries are processed and ready for review.
 -   **Enhanced Caching**: Add a caching layer (e.g., using Redis) for proxied requests to improve performance and reduce load on the main ALP API.
--   **Bi-directional Sync**: Explore a mechanism to update the status of a time entry in our local DB if it's changed or invoiced in the main ALP system. 
+-   **Bi-directional Sync**: Explore a mechanism to update the status of a time entry in our local DB if it's changed or invoiced in the main ALP system.
+
+## 6. Multi-User Integration with ALP
+
+To extend this service for multiple users within the ALP system, a user-specific approach for handling RescueTime API keys is required. The current single-key model (via `.env`) is suitable for a single user but must be adapted for a team.
+
+### 6.1. Core Concept
+
+Each user within the main ALP application who wishes to sync their RescueTime data must provide their own personal RescueTime API key. This ensures that data is fetched securely and is correctly associated with the individual who generated it.
+
+### 6.2. Proposed Workflow
+
+1.  **Secure Key Storage**: The main ALP application should provide a secure field in the user's profile or settings page where they can save their RescueTime API key. This key should be encrypted at rest in the ALP database.
+
+2.  **API-Driven Fetch**: When an ALP user initiates a data fetch, the ALP system will call our API's fetch endpoint. Instead of our API using a single, globally configured key, the ALP system will need to securely pass the specific user's key for the duration of the request.
+
+### 6.3. Required Architectural Changes
+
+To support this multi-user workflow, the following changes would be necessary in this RescueTime API service:
+
+-   **Parameterized Fetch Logic**: The `fetcher.py` and `jobs.py` modules would need to be updated to accept a RescueTime API key as a parameter for each job run, rather than reading it from the environment.
+
+-   **Data Scoping in Local DB**: To prevent data from different users from mixing, a `user_id` column (corresponding to the user's ID in the ALP system) must be added to the `activity_log` and `time_entries` tables in the local `rescuetime.db`. This would become part of the primary key structure to ensure uniqueness.
+
+-   **Modified API Endpoints**:
+    -   The `POST /api/jobs/fetch` endpoint would be modified to accept an `alp_user_id` and the corresponding `rescue_time_api_key`.
+    -   The `GET /api/time_entries` endpoint would need to be updated to accept an `alp_user_id` parameter to ensure it only returns pending entries for that specific user. 
