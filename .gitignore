@@ -1,0 +1,14 @@
+# .env file
+.env
+
+# Database
+*.db
+*.db-journal
+
+# Python
+__pycache__/
+*.pyc
+venv/ 
+
+# Reference repositories (for development reference only)
+reference/ 
