@@ -262,11 +262,14 @@ function goToToday() {
   store.setCurrentDate(getToday())
 }
 
-function onDisplayDateEnter(event) {
-  const iso = parseAUDate(displayDate.value)
-  if (iso) {
-    store.setCurrentDate(iso)
+function onDisplayDateEnter(){
+  const iso=parseAUDate(displayDate.value)
+  if(!iso){
+    alert('Please enter date as DD/MM/YYYY')
+    displayDate.value=formatDateAU(currentDate.value)
+    return
   }
+  store.setCurrentDate(iso)
 }
 
 async function fetchData() {

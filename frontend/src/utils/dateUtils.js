@@ -57,10 +57,15 @@ export function formatDateAU(dateString){
 }
 
 export function parseAUDate(input){
-  // expects DD/MM/YYYY returns YYYY-MM-DD or null
-  const parts=input.split('/')
+  // Accept DD/MM/YYYY or D/M/YYYY (slashes or dashes)
+  if(!input) return null
+  const parts=input.trim().split(/[\/\-]/)
   if(parts.length!==3) return null
-  const [d,m,y]=parts
-  if(d.length!==2||m.length!==2||y.length!==4) return null
+  let [d,m,y]=parts
+  // pad day & month to 2 chars
+  d=d.padStart(2,'0')
+  m=m.padStart(2,'0')
+  if(y.length!==4) return null
+  if(isNaN(Number(d))||isNaN(Number(m))||isNaN(Number(y))) return null
   return `${y}-${m}-${d}`
 } 
