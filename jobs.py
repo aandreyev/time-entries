@@ -21,9 +21,26 @@ def run_fetch_job(days: int = 1):
         # Fetch new data from the RescueTime API
         data = fetcher.fetch_data_for_date(date_str)
         
-        if data:
-            database.upsert_activity_data(data)
-            print(f"    Successfully fetched and upserted {len(data)} records for {date_str}.")
+        if data and 'rows' in data:
+            # Process the RescueTime API response into the expected format
+            processed_data = []
+            for row in data['rows']:
+                if len(row) >= 7:  # Ensure we have all required fields
+                    # RescueTime API returns: [rank, time_spent_seconds, number_of_people, activity, document, category, productivity]
+                    processed_data.append((
+                        date_str,           # log_date
+                        row[1],             # time_spent_seconds
+                        row[3],             # activity
+                        row[5],             # category
+                        row[6],             # productivity
+                        row[4]              # document
+                    ))
+            
+            if processed_data:
+                database.upsert_activity_data(processed_data)
+                print(f"    Successfully fetched and upserted {len(processed_data)} records for {date_str}.")
+            else:
+                print(f"    No valid data found for {date_str}.")
         else:
             print(f"    No new data found for {date_str}.")
             

@@ -1,6 +1,6 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List
+from typing import List, Optional
 import database
 import schemas
 import alp_api
@@ -29,13 +29,71 @@ def read_root():
 # --- Endpoints ---
 
 @app.get("/api/time_entries", response_model=List[schemas.TimeEntry])
-def get_time_entries():
+def get_time_entries(date: Optional[str] = None):
     """
-    Retrieve all time entries from the local database with a 'pending' status.
+    Retrieve time entries from the local database with a 'pending' status, optionally filtered by date.
     """
     try:
-        entries = database.get_pending_time_entries()
+        if date:
+            entries = database.get_time_entries_by_date(date)
+        else:
+            entries = database.get_pending_time_entries()
         return entries
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get("/api/time_entries_raw")
+def get_time_entries_raw(date: Optional[str] = None):
+    """
+    Test endpoint to return raw database entries without Pydantic validation.
+    """
+    try:
+        import os
+        cwd = os.getcwd()
+        db_file = os.path.join(cwd, "rescuetime.db")
+        db_exists = os.path.exists(db_file)
+        
+        if date:
+            entries = database.get_time_entries_by_date(date)
+        else:
+            entries = database.get_pending_time_entries()
+            
+        return {
+            "debug": {
+                "cwd": cwd,
+                "db_file": db_file,
+                "db_exists": db_exists,
+                "query_date": date,
+                "entries_count": len(entries) if entries else 0
+            },
+            "raw_entries": entries
+        }
+    except Exception as e:
+        import traceback
+        return {
+            "error": str(e),
+            "traceback": traceback.format_exc()
+        }
+
+@app.get("/api/processed_time_entries", response_model=List[schemas.ProcessedTimeEntry])
+def get_processed_time_entries(date: Optional[str] = None):
+    """
+    Retrieve processed time entries, optionally filtered by date.
+    """
+    try:
+        entries = database.get_processed_time_entries(date)
+        return entries
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.post("/api/processed_time_entries", response_model=schemas.ProcessedTimeEntry)
+def create_processed_time_entry(entry: schemas.ProcessedTimeEntryCreate):
+    """
+    Create a new processed time entry.
+    """
+    try:
+        created_entry = database.create_processed_time_entry(entry.dict())
+        return created_entry
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

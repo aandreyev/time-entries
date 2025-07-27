@@ -1,4 +1,4 @@
-
+ 
 # Design & Implementation Plan: RescueTime to ALP API
 
 ## 1. Objective

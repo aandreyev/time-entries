@@ -1,17 +1,16 @@
 import requests
 import os
+from dotenv import load_dotenv
 
 def get_api_key():
     """
-    Reads the API key from a file named .env
+    Reads the API key from environment variables loaded from .env
     """
-    if not os.path.exists('.env'):
-        raise FileNotFoundError("Error: .env file not found. Please create one with your API_KEY.")
-    with open('.env', 'r') as f:
-        for line in f:
-            if line.startswith('API_KEY='):
-                return line.strip().split('=')[1]
-    raise ValueError("Error: API_KEY not found in .env file.")
+    load_dotenv()
+    api_key = os.getenv('RESCUETIME_API_KEY')
+    if not api_key:
+        raise ValueError("Error: RESCUETIME_API_KEY not found in .env file.")
+    return api_key
 
 def fetch_data_for_date(date_str):
     """

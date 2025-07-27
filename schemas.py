@@ -1,10 +1,10 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, Union
 from datetime import date
 
 class TimeEntryBase(BaseModel):
     """
-    Base model for a time entry, containing common fields.
+    Base time entry model with common fields.
     """
     entry_date: date
     application: str
@@ -19,9 +19,11 @@ class TimeEntry(TimeEntryBase):
     """
     entry_id: int
     status: str
+    time_units: Optional[float] = None
+    source_hash: str
 
     class Config:
-        orm_mode = True
+        from_attributes = True
 
 class FetchJobRequest(BaseModel):
     """
@@ -44,3 +46,30 @@ class AlpTimeEntryCreate(BaseModel):
     gst_type: int
     discriminator: str = "MatterComponentTimeEntry"
     notes: Optional[str] = None 
+
+class ProcessedTimeEntryCreate(BaseModel):
+    """
+    Model for creating a new processed time entry.
+    """
+    original_entry_id: int
+    entry_date: date
+    application: str
+    task_description: str
+    time_units: float
+    matter_code: Optional[str] = None
+    status: str = "submitted"
+    notes: Optional[str] = None
+    source_hash: str
+
+class ProcessedTimeEntry(ProcessedTimeEntryCreate):
+    """
+    Full processed time entry model including the database ID.
+    """
+    id: int
+    created_at: Optional[str] = None
+    updated_at: Optional[str] = None
+    submitted_to_alp_at: Optional[str] = None
+    alp_entry_id: Optional[str] = None
+
+    class Config:
+        from_attributes = True 

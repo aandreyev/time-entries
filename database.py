@@ -6,7 +6,7 @@ DB_FILE = "rescuetime.db"
 
 def get_db_connection():
     """Establishes a connection to the SQLite database."""
-    conn = sqlite3.connect(DB_FILE)
+    conn = sqlite3.connect(DB_FILE, timeout=10.0)
     conn.row_factory = sqlite3.Row
     return conn
 
@@ -281,6 +281,17 @@ def get_pending_time_entries():
     finally:
         conn.close()
 
+def get_time_entries_by_date(date):
+    """Retrieves all time entries for a specific date."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM time_entries WHERE entry_date = ? ORDER BY created_at DESC", (date,))
+        entries = cursor.fetchall()
+        return [dict(row) for row in entries]
+    finally:
+        conn.close()
+
 def update_time_entry(entry_id, status=None, notes=None):
     """Updates a time entry's status and/or notes without affecting time aggregation."""
     conn = get_db_connection()
@@ -345,8 +356,139 @@ def update_time_entry_status(entry_id: int, status: str):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("UPDATE time_entries SET status = ? WHERE entry_id = ?", (status, entry_id))
+        cursor.execute("UPDATE time_entries SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE entry_id = ?", (status, entry_id))
+        if cursor.rowcount == 0:
+            raise ValueError(f"No time entry found with ID {entry_id}")
         conn.commit()
+        return True
+    except sqlite3.Error as e:
+        conn.rollback()
+        raise Exception(f"Database error updating entry status: {e}")
+    finally:
+        conn.close()
+
+def get_processed_time_entries(date=None):
+    """Retrieves processed time entries, optionally filtered by date."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        if date:
+            cursor.execute("""
+                SELECT * FROM processed_time_entries 
+                WHERE entry_date = ? 
+                ORDER BY created_at DESC
+            """, (date,))
+        else:
+            cursor.execute("""
+                SELECT * FROM processed_time_entries 
+                ORDER BY entry_date DESC, created_at DESC
+            """)
+        entries = cursor.fetchall()
+        return [dict(row) for row in entries]
+    finally:
+        conn.close()
+
+def create_processed_time_entry(entry_data):
+    """Creates or updates a processed time entry (upsert on source_hash+entry_date)."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+
+        upsert_sql = """
+        INSERT INTO processed_time_entries (
+            original_entry_id,
+            entry_date,
+            application,
+            task_description,
+            time_units,
+            matter_code,
+            status,
+            notes,
+            source_hash
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(source_hash, entry_date) DO UPDATE SET
+            original_entry_id = excluded.original_entry_id,
+            application       = excluded.application,
+            task_description  = excluded.task_description,
+            time_units        = excluded.time_units,
+            matter_code       = excluded.matter_code,
+            status            = excluded.status,
+            notes             = excluded.notes,
+            updated_at        = CURRENT_TIMESTAMP
+        """
+
+        cursor.execute(
+            upsert_sql,
+            (
+                entry_data['original_entry_id'],
+                entry_data['entry_date'],
+                entry_data['application'],
+                entry_data['task_description'],
+                entry_data['time_units'],
+                entry_data.get('matter_code'),
+                entry_data.get('status', 'submitted'),
+                entry_data.get('notes'),
+                entry_data['source_hash'],
+            ),
+        )
+
+        # Fetch the upserted row
+        cursor.execute(
+            "SELECT * FROM processed_time_entries WHERE source_hash = ? AND entry_date = ?",
+            (entry_data['source_hash'], entry_data['entry_date']),
+        )
+        created_entry = cursor.fetchone()
+        conn.commit()
+        return dict(created_entry) if created_entry else None
+
+    except sqlite3.Error as e:
+        print(f"Database error creating processed entry: {e}")
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
+
+def populate_missing_time_units():
+    """Populate time_units for entries that don't have them calculated."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Find entries without time_units
+        cursor.execute("SELECT entry_id, total_seconds FROM time_entries WHERE time_units IS NULL")
+        entries_to_update = cursor.fetchall()
+        
+        if not entries_to_update:
+            print("All time entries already have time_units calculated.")
+            return
+        
+        # Import the conversion function
+        import math
+        def seconds_to_units(seconds):
+            if seconds <= 0:
+                return 0.1  # Minimum 1 unit for any activity
+            units = seconds / 360  # 360 seconds = 6 minutes = 1 unit
+            return math.ceil(units * 10) / 10  # Round up to nearest 0.1
+        
+        # Update each entry
+        updated_count = 0
+        for entry in entries_to_update:
+            entry_id = entry['entry_id']
+            total_seconds = entry['total_seconds']
+            time_units = seconds_to_units(total_seconds)
+            
+            cursor.execute(
+                "UPDATE time_entries SET time_units = ?, updated_at = CURRENT_TIMESTAMP WHERE entry_id = ?",
+                (time_units, entry_id)
+            )
+            updated_count += 1
+        
+        conn.commit()
+        print(f"Successfully populated time_units for {updated_count} entries.")
+        
+    except sqlite3.Error as e:
+        print(f"Database error populating time_units: {e}")
+        conn.rollback()
     finally:
         conn.close()
 

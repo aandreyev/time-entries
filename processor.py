@@ -1,9 +1,31 @@
 import sqlite3
 import re
 import hashlib
+import math
 from collections import defaultdict
 from datetime import timedelta
 from database import get_db_connection
+
+def seconds_to_units(seconds):
+    """
+    Convert seconds to 6-minute units, rounded UP to nearest 0.1
+    
+    Examples:
+    - 60 seconds (1 min) → 0.1 units (rounded up from 0.17)
+    - 360 seconds (6 min) → 1.0 units (exact)
+    - 450 seconds (7.5 min) → 1.3 units (rounded up from 1.25)
+    - 1800 seconds (30 min) → 5.0 units (exact)
+    """
+    if seconds <= 0:
+        return 0.1  # Minimum 1 unit for any activity
+    
+    units = seconds / 360  # 360 seconds = 6 minutes = 1 unit
+    return math.ceil(units * 10) / 10  # Round up to nearest 0.1
+
+def format_time_units(units):
+    """Format time units for display (e.g., 1.5 units = "1.5 units (9 min)")"""
+    minutes = units * 6
+    return f"{units:.1f} units ({minutes:.0f} min)"
 
 def clean_document_name(doc, activity):
     """
@@ -257,16 +279,18 @@ def process_all_data(debug=False, start_date=None, end_date=None):
         
         # Use the original per-date source hash
         source_hash = get_source_hash(date, application, canonical_name)
-        entries_to_upsert.append((date, application, task_description, total_seconds, source_hash, matter_code))
+        time_units = seconds_to_units(total_seconds)
+        entries_to_upsert.append((date, application, task_description, total_seconds, time_units, source_hash, matter_code))
         total_processed_seconds += total_seconds
 
     # --- Database Upsert ---
     cursor = conn.cursor()
     upsert_sql = """
-    INSERT INTO time_entries (entry_date, application, task_description, total_seconds, source_hash, matter_code)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO time_entries (entry_date, application, task_description, total_seconds, time_units, source_hash, matter_code)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(source_hash) DO UPDATE SET
         total_seconds = excluded.total_seconds,
+        time_units = excluded.time_units,
         task_description = excluded.task_description,
         matter_code = excluded.matter_code,
         updated_at = CURRENT_TIMESTAMP;
@@ -382,17 +406,20 @@ def process_data_for_date(date_str, debug=False):
         matter_code = extract_matter_code(task_description)
         
         source_hash = get_source_hash(date_str, application, canonical_name)
-        entries_to_upsert.append((date_str, application, task_description, total_seconds, source_hash, matter_code))
+        time_units = seconds_to_units(total_seconds)
+        entries_to_upsert.append((date_str, application, task_description, total_seconds, time_units, source_hash, matter_code))
         total_processed_seconds += total_seconds
 
     # --- Database Upsert ---
     upsert_sql = """
-    INSERT INTO time_entries (entry_date, application, task_description, total_seconds, source_hash, matter_code)
-    VALUES (?, ?, ?, ?, ?, ?)
+    INSERT INTO time_entries (entry_date, application, task_description, total_seconds, time_units, source_hash, matter_code)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(source_hash) DO UPDATE SET
         total_seconds = excluded.total_seconds,
+        time_units = excluded.time_units,
         task_description = excluded.task_description,
-        matter_code = excluded.matter_code;
+        matter_code = excluded.matter_code,
+        updated_at = CURRENT_TIMESTAMP;
     """
 
     try:
