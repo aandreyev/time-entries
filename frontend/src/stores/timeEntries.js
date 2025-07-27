@@ -156,6 +156,20 @@ export const useTimeEntriesStore = defineStore('timeEntries', () => {
     }
   }
 
+  async function fetchProcessedTimeEntries(date = currentDate.value) {
+    loading.value = true
+    error.value = null
+    try {
+      const data = await apiClient.getProcessedTimeEntries(date)
+      processedEntries.value = data || []
+    } catch (err) {
+      error.value = `Failed to fetch processed entries: ${err.message}`
+      console.error(err)
+    } finally {
+      loading.value = false
+    }
+  }
+
   function setCurrentDate(date) {
     currentDate.value = date
   }
@@ -166,23 +180,18 @@ export const useTimeEntriesStore = defineStore('timeEntries', () => {
 
   // Return store interface
   return {
-    // State
     timeEntries,
     processedEntries,
     currentDate,
     loading,
     error,
-    lastFetch,
-    
-    // Getters
     pendingEntries,
     submittedEntries,
     ignoredEntries,
     totalPendingTime,
     totalSubmittedTime,
-    
-    // Actions
     fetchTimeEntries,
+    fetchProcessedTimeEntries,
     confirmTimeEntry,
     ignoreTimeEntry,
     fetchRescueTimeData,

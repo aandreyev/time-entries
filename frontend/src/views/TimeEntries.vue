@@ -1,67 +1,42 @@
 <template>
   <div class="space-y-6">
     <!-- Header with Date Navigation -->
-    <div class="bg-white rounded-lg shadow p-6">
-      <div class="flex items-center justify-between mb-4">
-        <h2 class="text-xl font-semibold text-gray-900">
-          Time Entries for {{ formatDisplayDate(currentDate) }}
-        </h2>
-        
-        <div class="flex items-center space-x-4">
-          <!-- Date Navigation -->
-          <div class="flex items-center space-x-2">
-            <button 
-              @click="previousDay" 
-              class="p-2 text-gray-400 hover:text-gray-600"
-              :disabled="loading"
-            >
-              ←
-            </button>
-            
-            <input 
-              type="date" 
-              v-model="currentDate"
-              @change="onDateChange"
-              class="input-field text-center"
-              :disabled="loading"
-            />
-            
-            <button 
-              @click="nextDay" 
-              class="p-2 text-gray-400 hover:text-gray-600"
-              :disabled="loading"
-            >
-              →
-            </button>
-            
-            <button 
-              @click="goToToday" 
-              class="btn-secondary text-sm"
-              :disabled="loading"
-            >
-              Today
-            </button>
-          </div>
-          
-          <!-- Action Buttons -->
-          <div class="flex items-center space-x-2">
-            <button 
-              @click="fetchData" 
-              class="btn-primary text-sm"
-              :disabled="loading"
-            >
-              {{ loading ? 'Loading...' : 'Refresh' }}
-            </button>
-            
-            <button 
-              @click="processData" 
-              class="btn-secondary text-sm"
-              :disabled="loading"
-            >
-              Process Data
-            </button>
-          </div>
-        </div>
+    <div class="bg-white rounded-lg shadow p-4">
+      <!-- Single-row compact header -->
+      <div class="flex flex-nowrap items-center gap-2 text-sm">
+        <!-- Date navigation -->
+        <button @click="previousDay" class="btn-secondary px-2 py-1" :disabled="loading">«</button>
+
+        <input
+          type="text"
+          v-model="displayDate"
+          placeholder="dd/mm/yyyy"
+          class="input-field text-center w-28"
+          :disabled="loading"
+          @keyup.enter="onDisplayDateEnter"
+          @blur="onDisplayDateEnter"
+        />
+
+        <button @click="nextDay" class="btn-secondary px-2 py-1" :disabled="loading">»</button>
+
+        <button @click="goToToday" class="btn-secondary px-2 py-1" :disabled="loading">Today</button>
+
+        <!-- View toggle -->
+        <button
+          :class="viewMode==='pending' ? 'btn-primary px-2 py-1' : 'btn-secondary px-2 py-1'"
+          @click="setView('pending')"
+          :disabled="loading"
+        >Pending</button>
+        <button
+          :class="viewMode==='processed' ? 'btn-primary px-2 py-1' : 'btn-secondary px-2 py-1'"
+          @click="setView('processed')"
+          :disabled="loading"
+        >Processed</button>
+
+        <!-- Update: fetch then process -->
+        <button @click="updateData" class="btn-secondary px-3 py-1" :disabled="loading">
+          {{ loading ? 'Updating…' : 'Update Day' }}
+        </button>
       </div>
       
       <!-- Summary Stats -->
@@ -72,7 +47,7 @@
             {{ pendingEntries.length }}
           </div>
           <div class="text-sm text-blue-700">
-            {{ formatTime(totalPendingTime) }} units
+            {{ formatTimeWithMinutes(totalPendingTime) }} units
           </div>
         </div>
         
@@ -82,7 +57,7 @@
             {{ submittedEntries.length }}
           </div>
           <div class="text-sm text-green-700">
-            {{ formatTime(totalSubmittedTime) }} units
+            {{ formatTimeWithMinutes(totalSubmittedTime) }} units
           </div>
         </div>
         
@@ -96,7 +71,7 @@
         <div class="bg-purple-50 p-4 rounded-lg">
           <div class="text-sm font-medium text-purple-600">Total Time</div>
           <div class="text-2xl font-bold text-purple-900">
-            {{ formatTime(totalPendingTime + totalSubmittedTime) }}
+            {{ formatTimeWithMinutes(totalPendingTime + totalSubmittedTime) }}
           </div>
           <div class="text-sm text-purple-700">units tracked</div>
         </div>
@@ -130,7 +105,7 @@
       <div class="text-gray-400 text-6xl mb-4">📅</div>
       <h3 class="text-lg font-medium text-gray-900 mb-2">No time entries found</h3>
       <p class="text-gray-500 mb-6">
-        No time entries exist for {{ formatDisplayDate(currentDate) }}.
+        No time entries exist for {{ displayDate }}.
       </p>
       <div class="space-x-4">
         <button @click="fetchRescueTimeData" class="btn-primary">
@@ -173,7 +148,7 @@
             </tr>
           </thead>
           <tbody class="bg-white divide-y divide-gray-200">
-            <tr v-for="entry in timeEntries" :key="entry.entry_id" class="table-row">
+            <tr v-for="entry in displayedEntries" :key="entry.entry_id" class="table-row">
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                 {{ entry.application }}
               </td>
@@ -195,7 +170,7 @@
                 </span>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-right text-sm font-medium space-x-2">
-                <template v-if="entry.status === 'pending'">
+                <template v-if="entry.status === 'pending' && viewMode==='pending'">
                   <button v-if="!entry.isEditing" @click="startEdit(entry)" class="text-blue-600 hover:text-blue-900">Edit</button>
                   <button v-if="entry.isEditing" @click="cancelEdit(entry)" class="text-gray-500 hover:text-gray-700">Cancel</button>
 
@@ -226,9 +201,9 @@
 </template>
 
 <script setup>
-import { onMounted, watch } from 'vue'
+import { ref, onMounted, watch, computed } from 'vue'
 import { useTimeEntriesStore } from '../stores/timeEntries.js'
-import { formatDisplayDate, formatTime, formatTimeWithMinutes, getToday, addDays, subtractDays } from '../utils/dateUtils.js'
+import { formatDateAU, parseAUDate, formatTimeWithMinutes, getToday, addDays, subtractDays } from '../utils/dateUtils.js'
 import { storeToRefs } from 'pinia'
 
 const store = useTimeEntriesStore()
@@ -245,6 +220,24 @@ const {
   totalPendingTime,
   totalSubmittedTime
 } = storeToRefs(store)
+
+const viewMode = ref('pending') // 'pending' | 'processed'
+
+const displayedEntries = computed(() => {
+  return viewMode.value === 'pending' ? timeEntries.value : processedEntries.value
+})
+
+const displayDate = ref(formatDateAU(currentDate.value))
+
+watch(currentDate, (newVal)=>{
+  displayDate.value = formatDateAU(newVal)
+})
+
+function setView(mode) {
+  if (viewMode.value === mode) return
+  viewMode.value = mode
+  fetchData()
+}
 
 // Methods
 function startEdit(entry) {
@@ -269,12 +262,19 @@ function goToToday() {
   store.setCurrentDate(getToday())
 }
 
-function onDateChange(event) {
-  store.setCurrentDate(event.target.value)
+function onDisplayDateEnter(event) {
+  const iso = parseAUDate(displayDate.value)
+  if (iso) {
+    store.setCurrentDate(iso)
+  }
 }
 
 async function fetchData() {
-  await store.fetchTimeEntries(currentDate.value)
+  if (viewMode.value === 'pending') {
+    await store.fetchTimeEntries(currentDate.value)
+  } else {
+    await store.fetchProcessedTimeEntries(currentDate.value)
+  }
 }
 
 async function processData() {
@@ -283,6 +283,11 @@ async function processData() {
 
 async function fetchRescueTimeData() {
   await store.fetchRescueTimeData(1)
+}
+
+async function updateData() {
+  await fetchRescueTimeData()
+  await processData()
 }
 
 async function saveAndConfirm(entry) {
