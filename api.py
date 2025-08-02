@@ -89,10 +89,13 @@ def get_processed_time_entries(date: Optional[str] = None):
 @app.post("/api/processed_time_entries", response_model=schemas.ProcessedTimeEntry)
 def create_processed_time_entry(entry: schemas.ProcessedTimeEntryCreate):
     """
-    Create a new processed time entry.
+    Create a new processed time entry and mark the original as submitted.
     """
     try:
         created_entry = database.create_processed_time_entry(entry.dict())
+        # Also update the original time entry status to 'submitted'
+        if entry.original_entry_id:
+            database.update_time_entry_status(entry.original_entry_id, "submitted")
         return created_entry
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -137,10 +140,16 @@ def create_alp_time_entry(entry: schemas.AlpTimeEntryCreate):
 @app.post("/api/jobs/fetch", status_code=202)
 def trigger_fetch_job(request: schemas.FetchJobRequest, background_tasks: BackgroundTasks):
     """
-    Triggers a background job to fetch the last N days of data from the RescueTime API.
+    Triggers a background job to fetch data from the RescueTime API.
+    If target_date is provided, fetches data for that date plus the specified number of days before it.
+    If no target_date is provided, fetches data for the last N days from today.
     """
-    background_tasks.add_task(jobs.run_fetch_job, days=request.days)
-    return {"message": f"Accepted: Data fetching job for the last {request.days} day(s) started in the background."}
+    background_tasks.add_task(jobs.run_fetch_job, days=request.days, target_date=request.target_date)
+    
+    if request.target_date:
+        return {"message": f"Accepted: Data fetching job for {request.days} day(s) from {request.target_date} started in the background."}
+    else:
+        return {"message": f"Accepted: Data fetching job for the last {request.days} day(s) started in the background."}
 
 @app.post("/api/jobs/process", status_code=202)
 def trigger_process_job(background_tasks: BackgroundTasks):

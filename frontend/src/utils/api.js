@@ -49,18 +49,29 @@ class ApiClient {
   }
 
   // Jobs
-  async fetchData(days = 1) {
-    return this.request('/jobs/fetch', {
+  async fetchData(days = 4, targetDate = null) {
+    const payload = { days }
+    if (targetDate) {
+      payload.target_date = targetDate
+    }
+    console.log('API fetchData called with payload:', payload)
+    const result = await this.request('/jobs/fetch', {
       method: 'POST',
-      body: JSON.stringify({ days }),
+      body: JSON.stringify(payload),
     })
+    console.log('API fetchData result:', result)
+    return result
   }
 
   async processData(date) {
-    return this.request('/jobs/process', {
+    const payload = { date }
+    console.log('API processData called with payload:', payload)
+    const result = await this.request('/jobs/process', {
       method: 'POST',
-      body: JSON.stringify({ date }),
+      body: JSON.stringify(payload),
     })
+    console.log('API processData result:', result)
+    return result
   }
 
   // ALP Integration (future)

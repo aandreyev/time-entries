@@ -1,6 +1,21 @@
 import sqlite3
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
+
+def convert_db_entry_to_dict(row):
+    """Convert database row to dict with proper date conversion for Pydantic."""
+    entry_dict = dict(row)
+    
+    # Convert entry_date string to date object if present
+    if 'entry_date' in entry_dict and entry_dict['entry_date']:
+        try:
+            # Parse YYYY-MM-DD string to date object
+            entry_dict['entry_date'] = datetime.strptime(entry_dict['entry_date'], '%Y-%m-%d').date()
+        except (ValueError, TypeError):
+            # Keep as string if parsing fails
+            pass
+    
+    return entry_dict
 
 DB_FILE = "rescuetime.db"
 
@@ -277,7 +292,7 @@ def get_pending_time_entries():
         cursor = conn.cursor()
         cursor.execute("SELECT * FROM time_entries WHERE status = 'pending' ORDER BY entry_date DESC")
         entries = cursor.fetchall()
-        return [dict(row) for row in entries]
+        return [convert_db_entry_to_dict(row) for row in entries]
     finally:
         conn.close()
 
@@ -286,9 +301,11 @@ def get_time_entries_by_date(date):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT * FROM time_entries WHERE entry_date = ? ORDER BY created_at DESC", (date,))
+        # Convert date object to string for SQL query if needed
+        date_str = date.strftime('%Y-%m-%d') if isinstance(date, datetime) or hasattr(date, 'strftime') else str(date)
+        cursor.execute("SELECT * FROM time_entries WHERE entry_date = ? ORDER BY created_at DESC", (date_str,))
         entries = cursor.fetchall()
-        return [dict(row) for row in entries]
+        return [convert_db_entry_to_dict(row) for row in entries]
     finally:
         conn.close()
 
@@ -373,18 +390,20 @@ def get_processed_time_entries(date=None):
     try:
         cursor = conn.cursor()
         if date:
+            # Convert date object to string for SQL query if needed
+            date_str = date.strftime('%Y-%m-%d') if isinstance(date, datetime) or hasattr(date, 'strftime') else str(date)
             cursor.execute("""
                 SELECT * FROM processed_time_entries 
                 WHERE entry_date = ? 
                 ORDER BY created_at DESC
-            """, (date,))
+            """, (date_str,))
         else:
             cursor.execute("""
                 SELECT * FROM processed_time_entries 
                 ORDER BY entry_date DESC, created_at DESC
             """)
         entries = cursor.fetchall()
-        return [dict(row) for row in entries]
+        return [convert_db_entry_to_dict(row) for row in entries]
     finally:
         conn.close()
 
@@ -393,6 +412,11 @@ def create_processed_time_entry(entry_data):
     conn = get_db_connection()
     try:
         cursor = conn.cursor()
+
+        # Convert date object to string for database storage if needed
+        entry_date = entry_data['entry_date']
+        if hasattr(entry_date, 'strftime'):
+            entry_date = entry_date.strftime('%Y-%m-%d')
 
         upsert_sql = """
         INSERT INTO processed_time_entries (
@@ -421,7 +445,7 @@ def create_processed_time_entry(entry_data):
             upsert_sql,
             (
                 entry_data['original_entry_id'],
-                entry_data['entry_date'],
+                entry_date,
                 entry_data['application'],
                 entry_data['task_description'],
                 entry_data['time_units'],
@@ -435,11 +459,11 @@ def create_processed_time_entry(entry_data):
         # Fetch the upserted row
         cursor.execute(
             "SELECT * FROM processed_time_entries WHERE source_hash = ? AND entry_date = ?",
-            (entry_data['source_hash'], entry_data['entry_date']),
+            (entry_data['source_hash'], entry_date),
         )
         created_entry = cursor.fetchone()
         conn.commit()
-        return dict(created_entry) if created_entry else None
+        return convert_db_entry_to_dict(created_entry) if created_entry else None
 
     except sqlite3.Error as e:
         print(f"Database error creating processed entry: {e}")

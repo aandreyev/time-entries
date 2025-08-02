@@ -39,20 +39,33 @@ export const useTimeEntriesStore = defineStore('timeEntries', () => {
     error.value = null
     
     try {
+      console.log('fetchTimeEntries called with date:', date)
       const [draftEntries, confirmedEntries] = await Promise.all([
         apiClient.getTimeEntries(date),
         apiClient.getProcessedTimeEntries(date)
       ])
       
+      console.log('fetchTimeEntries results:', {
+        draftEntries: draftEntries?.length,
+        confirmedEntries: confirmedEntries?.length
+      })
+      
       timeEntries.value = draftEntries || []
       processedEntries.value = confirmedEntries || []
       lastFetch.value = new Date()
+      
+      console.log('fetchTimeEntries completed. Store state:', {
+        timeEntriesCount: timeEntries.value.length,
+        processedEntriesCount: processedEntries.value.length,
+        loading: loading.value
+      })
       
     } catch (err) {
       error.value = `Failed to fetch time entries: ${err.message}`
       console.error('Fetch error:', err)
     } finally {
       loading.value = false
+      console.log('fetchTimeEntries finally block - loading set to false')
     }
   }
 
@@ -83,7 +96,7 @@ export const useTimeEntriesStore = defineStore('timeEntries', () => {
       // Add to processed entries
       processedEntries.value.push(result)
       
-      // Remove from pending entries or mark as processed
+      // Mark the original entry as submitted (don't remove it)
       const entryIndex = timeEntries.value.findIndex(e => e.entry_id === entryId)
       if (entryIndex >= 0) {
         timeEntries.value[entryIndex].status = 'submitted'
@@ -120,14 +133,20 @@ export const useTimeEntriesStore = defineStore('timeEntries', () => {
     }
   }
 
-  async function fetchRescueTimeData(days = 1) {
+  async function fetchRescueTimeData(days = 4, targetDate = null) {
     loading.value = true
     error.value = null
     
     try {
-      await apiClient.fetchData(days)
-      // Refresh current data after fetch
-      await fetchTimeEntries(currentDate.value)
+      console.log('fetchRescueTimeData called with:', { days, targetDate })
+      await apiClient.fetchData(days, targetDate)
+      console.log('fetchData completed, refreshing both pending and processed entries...')
+      // Refresh both pending and processed data after fetch
+      await Promise.all([
+        fetchTimeEntries(currentDate.value),
+        fetchProcessedTimeEntries(currentDate.value)
+      ])
+      console.log('Both entry types refreshed after fetch')
       
     } catch (err) {
       error.value = `Failed to fetch RescueTime data: ${err.message}`
@@ -143,9 +162,15 @@ export const useTimeEntriesStore = defineStore('timeEntries', () => {
     error.value = null
     
     try {
+      console.log('processRescueTimeData called with date:', date)
       await apiClient.processData(date)
-      // Refresh current data after processing
-      await fetchTimeEntries(date)
+      console.log('processData completed, refreshing both pending and processed entries...')
+      // Refresh both pending and processed data after processing
+      await Promise.all([
+        fetchTimeEntries(date),
+        fetchProcessedTimeEntries(date)
+      ])
+      console.log('Both entry types refreshed after processing')
       
     } catch (err) {
       error.value = `Failed to process data: ${err.message}`

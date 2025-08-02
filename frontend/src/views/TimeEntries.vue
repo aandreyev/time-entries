@@ -95,26 +95,18 @@
     </div>
 
     <!-- Loading State -->
-    <div v-if="loading && !timeEntries.length" class="text-center py-12">
+    <div v-if="loading && !displayedEntries.length" class="text-center py-12">
       <div class="animate-spin rounded-full h-8 w-8 border-b-2 border-primary-500 mx-auto"></div>
       <p class="mt-4 text-gray-500">Loading time entries...</p>
     </div>
 
     <!-- Empty State -->
-    <div v-else-if="!timeEntries.length && !loading" class="text-center py-12">
+    <div v-else-if="!displayedEntries.length && !loading" class="text-center py-12">
       <div class="text-gray-400 text-6xl mb-4">📅</div>
       <h3 class="text-lg font-medium text-gray-900 mb-2">No time entries found</h3>
       <p class="text-gray-500 mb-6">
-        No time entries exist for {{ displayDate }}.
+        No time entries exist for {{ displayDate }}. Use the "Update Day" button above to fetch and process data.
       </p>
-      <div class="space-x-4">
-        <button @click="fetchRescueTimeData" class="btn-primary">
-          Fetch from RescueTime
-        </button>
-        <button @click="processData" class="btn-secondary">
-          Process Existing Data
-        </button>
-      </div>
     </div>
 
     <!-- Time Entries Table -->
@@ -224,7 +216,7 @@ const {
 const viewMode = ref('pending') // 'pending' | 'processed'
 
 const displayedEntries = computed(() => {
-  return viewMode.value === 'pending' ? timeEntries.value : processedEntries.value
+  return viewMode.value === 'pending' ? pendingEntries.value : submittedEntries.value
 })
 
 const displayDate = ref(formatDateAU(currentDate.value))
@@ -280,17 +272,10 @@ async function fetchData() {
   }
 }
 
-async function processData() {
-  await store.processRescueTimeData(currentDate.value)
-}
-
-async function fetchRescueTimeData() {
-  await store.fetchRescueTimeData(1)
-}
-
 async function updateData() {
-  await fetchRescueTimeData()
-  await processData()
+  await store.fetchRescueTimeData(4, currentDate.value)
+  await store.processRescueTimeData(currentDate.value)
+  await fetchData()
 }
 
 async function saveAndConfirm(entry) {

@@ -29,7 +29,8 @@ class FetchJobRequest(BaseModel):
     """
     Model for the request to trigger a fetch job.
     """
-    days: int = Field(default=1, ge=1, le=30, description="Number of past days to fetch data for (e.g., 1 for today).")
+    days: int = Field(default=4, ge=1, le=30, description="Number of past days to fetch data for (e.g., 4 for selected date plus 3 days before).")
+    target_date: Optional[str] = Field(default=None, description="Target date in YYYY-MM-DD format. If provided, fetches data for this date and the specified number of days before it.")
 
 class AlpTimeEntryCreate(BaseModel):
     """
