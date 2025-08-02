@@ -133,6 +133,28 @@ export const useTimeEntriesStore = defineStore('timeEntries', () => {
     }
   }
 
+  async function revertTimeEntry(entryId) {
+    loading.value = true
+    error.value = null
+    
+    try {
+      await apiClient.revertTimeEntry(entryId)
+      
+      // Refresh both pending and processed data after revert
+      await Promise.all([
+        fetchTimeEntries(currentDate.value),
+        fetchProcessedTimeEntries(currentDate.value)
+      ])
+      
+    } catch (err) {
+      error.value = `Failed to revert entry: ${err.message}`
+      console.error('Revert error:', err)
+      throw err
+    } finally {
+      loading.value = false
+    }
+  }
+
   async function fetchRescueTimeData(days = 4, targetDate = null) {
     loading.value = true
     error.value = null
@@ -219,6 +241,7 @@ export const useTimeEntriesStore = defineStore('timeEntries', () => {
     fetchProcessedTimeEntries,
     confirmTimeEntry,
     ignoreTimeEntry,
+    revertTimeEntry,
     fetchRescueTimeData,
     processRescueTimeData,
     setCurrentDate,

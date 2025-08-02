@@ -42,12 +42,14 @@
       <!-- Summary Stats -->
       <div class="grid grid-cols-1 md:grid-cols-4 gap-4">
         <div class="bg-blue-50 p-4 rounded-lg">
-          <div class="text-sm font-medium text-blue-600">Pending</div>
+          <div class="text-sm font-medium text-blue-600">
+            Pending{{ viewMode === 'pending' && activityFilter ? ` (${activityFilter})` : '' }}
+          </div>
           <div class="text-2xl font-bold text-blue-900">
-            {{ pendingEntries.length }}
+            {{ viewMode === 'pending' && activityFilter ? displayedEntries.length : pendingEntries.length }}
           </div>
           <div class="text-sm text-blue-700">
-            {{ formatTimeWithMinutes(totalPendingTime) }} units
+            {{ viewMode === 'pending' && activityFilter ? formatTimeWithMinutes(filteredPendingTime) : formatTimeWithMinutes(totalPendingTime) }} units
           </div>
         </div>
         
@@ -112,7 +114,24 @@
     <!-- Time Entries Table -->
     <div v-else class="bg-white rounded-lg shadow overflow-hidden">
       <div class="px-6 py-4 border-b border-gray-200">
-        <h3 class="text-lg font-medium text-gray-900">Time Entries</h3>
+        <div class="flex justify-between items-center">
+          <h3 class="text-lg font-medium text-gray-900">Time Entries</h3>
+          
+          <!-- Activity Filter (only for pending view) -->
+          <div v-if="viewMode === 'pending'" class="flex items-center space-x-2">
+            <label for="activityFilter" class="text-sm font-medium text-gray-700">Filter by Activity:</label>
+            <select
+              id="activityFilter"
+              v-model="activityFilter"
+              class="input-field text-sm w-48"
+            >
+              <option value="">All Activities</option>
+              <option v-for="app in availableApplications" :key="app" :value="app">
+                {{ app }}
+              </option>
+            </select>
+          </div>
+        </div>
       </div>
       
       <div class="overflow-x-auto">
@@ -145,8 +164,13 @@
                 {{ entry.application }}
               </td>
               <td class="px-6 py-4 text-sm text-gray-900">
-                <div v-if="!entry.isEditing" class="max-w-xs truncate">{{ entry.task_description }}</div>
-                <input v-else v-model="entry.edit_task_description" type="text" class="input-field w-full" />
+                <div v-if="!entry.isEditing" class="whitespace-pre-wrap break-words max-w-md">{{ entry.task_description }}</div>
+                <textarea 
+                  v-else 
+                  v-model="entry.edit_task_description" 
+                  class="input-field w-full resize-y min-h-[2.5rem]"
+                  rows="2"
+                ></textarea>
               </td>
               <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                 <span v-if="!entry.isEditing">{{ formatTimeWithMinutes(entry.time_units) }}</span>
@@ -183,6 +207,15 @@
                     Ignore
                   </button>
                 </template>
+                
+                <template v-if="entry.status === 'submitted' && viewMode==='processed'">
+                  <button 
+                    @click="revertEntry(entry)"
+                    class="text-orange-600 hover:text-orange-900"
+                  >
+                    Revert
+                  </button>
+                </template>
               </td>
             </tr>
           </tbody>
@@ -214,9 +247,42 @@ const {
 } = storeToRefs(store)
 
 const viewMode = ref('pending') // 'pending' | 'processed'
+const activityFilter = ref('microsoft word') // Default to Microsoft Word
 
 const displayedEntries = computed(() => {
-  return viewMode.value === 'pending' ? pendingEntries.value : submittedEntries.value
+  let entries = viewMode.value === 'pending' ? pendingEntries.value : submittedEntries.value
+  
+  // Apply activity filter only for pending view
+  if (viewMode.value === 'pending' && activityFilter.value) {
+    entries = entries.filter(entry => 
+      entry.application && entry.application.toLowerCase() === activityFilter.value.toLowerCase()
+    )
+  }
+  
+  return entries
+})
+
+// Get list of available applications for the filter dropdown
+const availableApplications = computed(() => {
+  if (viewMode.value !== 'pending') return []
+  
+  const apps = new Set()
+  pendingEntries.value.forEach(entry => {
+    if (entry.application) {
+      apps.add(entry.application)
+    }
+  })
+  
+  return Array.from(apps).sort()
+})
+
+// Calculate total time for filtered pending entries
+const filteredPendingTime = computed(() => {
+  if (viewMode.value !== 'pending' || !activityFilter.value) {
+    return totalPendingTime.value
+  }
+  
+  return displayedEntries.value.reduce((total, entry) => total + (entry.time_units || 0), 0)
 })
 
 const displayDate = ref(formatDateAU(currentDate.value))
@@ -228,6 +294,15 @@ watch(currentDate, (newVal)=>{
 function setView(mode) {
   if (viewMode.value === mode) return
   viewMode.value = mode
+  
+  // Reset activity filter when switching to processed view
+  if (mode === 'processed') {
+    activityFilter.value = ''
+  } else if (mode === 'pending') {
+    // Set default filter to Microsoft Word for pending view
+    activityFilter.value = 'microsoft word'
+  }
+  
   fetchData()
 }
 
@@ -310,6 +385,16 @@ async function confirmEntry(entry, editedDataOverride = null) {
 async function ignoreEntry(entry) {
   try {
     await store.ignoreTimeEntry(entry.entry_id)
+  } catch (err) {
+    // Error handled by store
+  }
+}
+
+async function revertEntry(entry) {
+  try {
+    // Use 'id' for processed entries, 'entry_id' for regular entries
+    const entryId = entry.id || entry.entry_id
+    await store.revertTimeEntry(entryId)
   } catch (err) {
     // Error handled by store
   }

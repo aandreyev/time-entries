@@ -111,6 +111,34 @@ def ignore_time_entry(entry_id: int):
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.put("/api/processed_time_entries/{entry_id}/revert", response_model=dict)
+def revert_processed_time_entry(entry_id: int):
+    """
+    Revert a processed time entry back to pending status.
+    This removes the processed entry and sets the original entry status back to 'pending'.
+    """
+    try:
+        # Get the processed entry to find the original entry ID
+        processed_entry = database.get_processed_entry_by_id(entry_id)
+        if not processed_entry:
+            raise HTTPException(status_code=404, detail="Processed time entry not found")
+        
+        original_entry_id = processed_entry.get('original_entry_id')
+        if not original_entry_id:
+            raise HTTPException(status_code=400, detail="Original entry ID not found in processed entry")
+        
+        # Delete the processed entry
+        database.delete_processed_time_entry(entry_id)
+        
+        # Revert the original entry status back to pending
+        database.update_time_entry_status(original_entry_id, "pending")
+        
+        return {"status": "success", "message": f"Processed entry {entry_id} has been reverted to pending."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/alp/matters")
 def get_alp_matters():
     # TODO: Proxy request to ALP API to fetch matters

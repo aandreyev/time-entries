@@ -516,5 +516,32 @@ def populate_missing_time_units():
     finally:
         conn.close()
 
+def get_processed_entry_by_id(entry_id):
+    """Retrieves a single processed time entry by its ID."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM processed_time_entries WHERE id = ?", (entry_id,))
+        entry = cursor.fetchone()
+        return convert_db_entry_to_dict(entry) if entry else None
+    finally:
+        conn.close()
+
+def delete_processed_time_entry(entry_id):
+    """Deletes a processed time entry by its ID."""
+    conn = get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM processed_time_entries WHERE id = ?", (entry_id,))
+        if cursor.rowcount == 0:
+            raise ValueError(f"No processed time entry found with ID {entry_id}")
+        conn.commit()
+        return True
+    except sqlite3.Error as e:
+        conn.rollback()
+        raise Exception(f"Database error deleting processed entry: {e}")
+    finally:
+        conn.close()
+
 if __name__ == '__main__':
     initialize_database() 

@@ -48,6 +48,12 @@ class ApiClient {
     })
   }
 
+  async revertTimeEntry(entryId) {
+    return this.request(`/processed_time_entries/${entryId}/revert`, {
+      method: 'PUT',
+    })
+  }
+
   // Jobs
   async fetchData(days = 4, targetDate = null) {
     const payload = { days }
