@@ -17,7 +17,7 @@ def convert_db_entry_to_dict(row):
     
     return entry_dict
 
-DB_FILE = "rescuetime.db"
+DB_FILE = "/Users/andrewandreyev/Library/CloudStorage/OneDrive-SYNTAQ/Documents SYN/Coding/RescueTime DB/rescuetime.db"
 
 def get_db_connection():
     """Establishes a connection to the SQLite database."""
@@ -59,12 +59,35 @@ def initialize_database():
         application TEXT NOT NULL,
         task_description TEXT NOT NULL,
         total_seconds INTEGER NOT NULL,
+        time_units REAL,
         status TEXT NOT NULL DEFAULT 'pending',
         notes TEXT,
         matter_code TEXT,
         source_hash TEXT NOT NULL UNIQUE,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+    
+    # Processed time entries table
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS processed_time_entries (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        original_entry_id INTEGER NOT NULL,
+        entry_date TEXT NOT NULL,
+        application TEXT NOT NULL,
+        task_description TEXT NOT NULL,
+        time_units REAL NOT NULL,
+        matter_code TEXT,
+        status TEXT NOT NULL DEFAULT 'submitted',
+        notes TEXT,
+        source_hash TEXT NOT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        submitted_to_alp_at TIMESTAMP,
+        alp_entry_id TEXT,
+        UNIQUE(source_hash, entry_date),
+        FOREIGN KEY (original_entry_id) REFERENCES time_entries (entry_id)
     )
     """)
     
@@ -82,6 +105,8 @@ def initialize_database():
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_activity_log_date ON activity_log(log_date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_time_entries_date ON time_entries(entry_date)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_time_entries_matter ON time_entries(matter_code)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_processed_time_entries_date ON processed_time_entries(entry_date)")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_processed_time_entries_matter ON processed_time_entries(matter_code)")
     
     conn.commit()
     conn.close()
