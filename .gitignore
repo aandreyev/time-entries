@@ -14,7 +14,8 @@ venv/
 
 # Node.js
 node_modules/
-.vue-global-types/ 
+.vue-global-types/
+frontend/dist/ 
 
 # Reference repositories (for development reference only)
 reference/ 
