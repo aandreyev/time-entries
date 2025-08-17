@@ -1,4 +1,5 @@
 import argparse
+import os
 from datetime import datetime, timedelta
 import database
 import fetcher
@@ -7,6 +8,10 @@ import reporter
 import uvicorn
 from api import app as fastapi_app
 import jobs
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 def handle_fetch(args):
     """Handles the fetch command."""
@@ -158,7 +163,7 @@ def main():
     # --- New Subparser for running the API ---
     run_api_parser = subparsers.add_parser("run-api", help="Run the FastAPI server for the web interface.")
     run_api_parser.add_argument("--host", type=str, default="127.0.0.1", help="Host for the API server.")
-    run_api_parser.add_argument("--port", type=int, default=8000, help="Port for the API server.")
+    run_api_parser.add_argument("--port", type=int, default=int(os.getenv('BACKEND_PORT', 8000)), help="Port for the API server.")
     run_api_parser.set_defaults(func=lambda args: uvicorn.run(fastapi_app, host=args.host, port=args.port))
 
     # --- Clear Command ---

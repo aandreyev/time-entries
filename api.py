@@ -1,10 +1,13 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from typing import List, Optional
 import database
 import schemas
 import alp_api
 import jobs
+import os
 
 app = FastAPI(
     title="RescueTime to ALP Integration API",
@@ -21,12 +24,35 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-@app.get("/")
-def read_root():
-    """A root endpoint to confirm the API is running."""
-    return {"status": "ok", "message": "Welcome to the RescueTime to ALP Integration API"}
+# --- Static Frontend Mount (built Vue app) ---
+# Expect the production build to exist at frontend/dist (run via run.sh)
+try:
+    app.mount("/assets", StaticFiles(directory="frontend/dist/assets"), name="assets")
+except Exception:
+    # Build may not have run yet; ignore so API still works
+    pass
+
+@app.get("/", include_in_schema=False)
+def serve_index():  # pragma: no cover - simple file response
+    """Serve the SPA index HTML (frontend)."""
+    try:
+        return FileResponse("frontend/dist/index.html")
+    except Exception:
+        # Fallback simple JSON if frontend not built yet
+        return {"status": "ok", "message": "Frontend not built yet. Run ./run.sh to build."}
+
+## (Fallback moved to end of file to avoid overshadowing API routes.)
 
 # --- Endpoints ---
+
+@app.get("/api/settings", response_model=dict)
+def get_settings():
+    """Return minimal runtime settings for the UI."""
+    return {
+        "backend_port": int(os.getenv("BACKEND_PORT", 8000)),
+        "database_path": os.getenv("DATABASE_PATH", "rescuetime.db"),
+        "has_api_key": bool(os.getenv("RESCUETIME_API_KEY")),
+    }
 
 @app.get("/api/time_entries", response_model=List[schemas.TimeEntry])
 def get_time_entries(date: Optional[str] = None):
@@ -186,3 +212,15 @@ def trigger_process_job(background_tasks: BackgroundTasks):
     """
     background_tasks.add_task(jobs.run_process_job)
     return {"message": "Accepted: Data processing job started in the background."} 
+
+# --- SPA Fallback (must be last) ---
+@app.get("/{full_path:path}", include_in_schema=False)
+def spa_fallback(full_path: str):  # pragma: no cover
+    """Serve index.html for any non-API path so the Vue router can handle it."""
+    # Let real 404s happen for API paths
+    if full_path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not Found")
+    try:
+        return FileResponse("frontend/dist/index.html")
+    except Exception:
+        raise HTTPException(status_code=404, detail="Frontend not built")

@@ -85,6 +85,11 @@ class ApiClient {
     return this.request('/alp/matters')
   }
 
+  // Settings
+  async getSettings() {
+    return this.request('/settings')
+  }
+
   async submitToAlp(processedEntries) {
     return this.request('/time_entries', {
       method: 'POST',

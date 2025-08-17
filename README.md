@@ -37,24 +37,28 @@ Perfect for lawyers, consultants, and professionals who need accurate billable t
 
 ## 📋 Prerequisites
 
-- Python 3.7+
+- Python 3.9+ (earlier 3.8 may work, but 3.9+ recommended)
+- Node.js 18+ & npm (only required if you modify the frontend; `run.sh` auto-installs deps)
 - RescueTime account with API access
 - RescueTime API key ([Get yours here](https://www.rescuetime.com/anapi/manage))
+- Modern browser (Chrome, Edge, Firefox, Safari) for the web UI
 
 ## 🛠️ Setup
 
-### 1. Install Dependencies
+### 1. Install Python Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 2. Configure API Access
+### 2. Configure Environment
 
 Create a `.env` file in the project directory:
 
 ```bash
-API_KEY=YOUR_RESCUETIME_API_KEY_HERE
+RESCUETIME_API_KEY=YOUR_RESCUETIME_API_KEY_HERE
+DATABASE_PATH="/Users/andrewandreyev/Library/CloudStorage/OneDrive-SYNTAQ/Documents SYN/Coding/RescueTime DB/rescuetime.db"
+BACKEND_PORT=8765
 ```
 
 Get your API key from the [RescueTime API management page](https://www.rescuetime.com/anapi/manage).
@@ -65,9 +69,61 @@ Get your API key from the [RescueTime API management page](https://www.rescuetim
 python main.py initdb
 ```
 
-This creates a local SQLite database (`rescuetime.db`) to store your activity data and time entries.
+This creates (if needed) a local SQLite database (`rescuetime.db`) to store raw and processed data.
+
+### 4. Run the Unified Web Interface (Frontend + API)
+
+The application serves the Vue.js frontend and the FastAPI backend from a single origin.
+
+```bash
+./run.sh
+```
+
+What `run.sh` does:
+1. Loads `.env` (for `BACKEND_PORT`, etc.)
+2. Kills any process already listening on that port (graceful then force) to avoid conflicts
+3. Builds the production Vue bundle into `frontend/dist`
+4. Starts FastAPI (`python main.py run-api`) which serves:
+	- API routes under `/api/...`
+	- Static assets under `/assets`
+	- SPA index for any non-`/api` path
+
+Then visit: `http://localhost:8765` (or whatever `BACKEND_PORT` you configured).
+
+If you are actively developing the frontend you can still run a Vite dev server (not required for normal use). The unified deployment is the default path.
+
+### 5. (Optional) CLI-Only Usage
+
+All historical CLI commands still work (see below). The web UI is additive and uses the same database & logic.
 
 ## 📖 Usage Guide
+
+You can operate via:
+1. The **Web UI** (recommended for browsing & interacting with entries)
+2. The **CLI** (automation / scripting)
+
+### Web UI Quick Start
+
+After running `./run.sh`, open the root URL. The frontend calls these key endpoints:
+
+| Endpoint | Method | Purpose |
+|----------|--------|---------|
+| `/api/time_entries?date=YYYY-MM-DD` | GET | Pending (raw/cleaned) time entries |
+| `/api/processed_time_entries?date=YYYY-MM-DD` | GET | Processed (submitted) entries |
+| `/api/processed_time_entries` | POST | Create a processed entry & mark original submitted |
+| `/api/time_entries/{id}/ignore` | PUT | Mark a pending entry as ignored |
+| `/api/processed_time_entries/{id}/revert` | PUT | Revert a processed entry to pending |
+| `/api/jobs/fetch` | POST | Trigger background fetch job (JSON body: `{ "days": N, "target_date": "YYYY-MM-DD" | null }`) |
+| `/api/jobs/process` | POST | Trigger background processing job |
+| `/api/settings` | GET | Minimal runtime config info (port, db path, api key present) |
+| `/api/time_entries_raw` | GET | Debug raw JSON (no pydantic validation) |
+
+Example debug call:
+```bash
+curl -s "http://localhost:8765/api/settings" | jq
+```
+
+If you hit 404s for `/api/*` endpoints, ensure the server is running and you're not being served the SPA fallback—`run.sh` must complete successfully.
 
 ### **Basic Workflow**
 
@@ -234,19 +290,39 @@ The system uses regex patterns to extract matter codes. Modify `extract_matter_c
 ### **Cleaning Rules**
 Document cleaning rules are in `get_canonical_name()` in `processor.py`. Add custom patterns for your specific applications or document types.
 
-## 📁 File Structure
+## 📁 File Structure (Updated)
 
 ```
-rescuetime/
-├── main.py              # CLI interface and command handlers
-├── database.py          # SQLite database operations
-├── fetcher.py           # RescueTime API client
-├── processor.py         # Data cleaning and aggregation
-├── reporter.py          # Report generation and CSV export
-├── requirements.txt     # Python dependencies
-├── .env                 # API key configuration (create this)
-├── rescuetime.db        # SQLite database (auto-created)
-└── README.md           # This file
+.
+├── alp_api.py                 # Placeholder / integration helpers for ALP API
+├── api.py                     # FastAPI app (serves API + built frontend + SPA fallback)
+├── database.py                # Core SQLite helpers (time entries, raw data, status updates)
+├── database/
+│   ├── database_postgres.py   # (Future) Postgres adapter placeholder
+│   ├── migration_guide.md
+│   ├── setup_centralized_api.md
+│   └── setup_shared_sqlite.md
+├── fetcher.py                 # RescueTime API ingestion logic
+├── jobs.py                    # Background job orchestration (fetch/process)
+├── main.py                    # CLI entrypoint with subcommands
+├── processor.py               # Data cleaning, aggregation & matter code extraction
+├── reporter.py                # CLI reporting + CSV export
+├── requirements.txt           # Python dependencies
+├── run.sh                     # Unified build + serve script (frontend + API)
+├── schemas.py                 # Pydantic models for API I/O
+├── frontend/                  # Vue 3 application (built output consumed by FastAPI)
+│   ├── index.html
+│   ├── package.json
+│   ├── vite.config.js
+│   └── src/
+│       ├── App.vue
+│       ├── main.js
+│       ├── stores/
+│       ├── utils/
+│       └── views/
+├── .env                       # Environment variables (not committed)
+├── rescuetime.db              # SQLite database (auto-created)
+└── README.md                  # This document
 ```
 
 ## 🗄️ Database Schema
@@ -274,6 +350,15 @@ rescuetime/
 - **Incremental Processing**: Only processes unprocessed raw data for efficiency
 
 ## 🚨 Troubleshooting
+
+### Web UI Not Loading / Blank Page
+- Ensure `frontend/dist` exists – run `./run.sh`
+- Check terminal output for build errors (Node version >= 18)
+- Verify you are visiting `http://localhost:${BACKEND_PORT:-8765}`
+
+### API 404s While UI Loads
+- If navigating directly to `/api/...` returns HTML, the server may not be running; restart with `./run.sh`.
+- Confirm no second process replaced the server on that port.
 
 ### **No Data Returned**
 - Verify API key in `.env` file

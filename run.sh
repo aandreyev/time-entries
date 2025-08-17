@@ -1,18 +1,43 @@
 #!/usr/bin/env bash
 # ---------------------------------------------------------------------------
-# run.sh  – single-command helper to build the Vue frontend and launch both
-#           FastAPI backend and static frontend server.
+# run.sh  – build the Vue frontend then launch FastAPI (serves API + static files).
 #
-# 1. Builds the production bundle with Vite ( ./frontend/dist )
-# 2. Starts the FastAPI server on port 8080
-# 3. Serves the static bundle on port 3000 using `npx serve`
-# 4. Cleans up child processes on exit (Ctrl-C)
+# Steps:
+#   1. Build production bundle (frontend/dist)
+#   2. Start FastAPI on BACKEND_PORT (serves /api and frontend SPA)
+#   3. Ctrl-C stops the single process
 # ---------------------------------------------------------------------------
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-BACKEND_PORT=8080
-FRONTEND_PORT=3000
+
+# Load environment variables from .env file
+if [ -f "$ROOT_DIR/.env" ]; then
+  set -a  # automatically export all variables
+  source "$ROOT_DIR/.env"
+  set +a  # stop automatically exporting
+fi
+
+# Use environment variable or default
+BACKEND_PORT=${BACKEND_PORT:-8080}
+
+# Free the target port if already in use (macOS/Linux)
+echo "[run.sh] Ensuring port $BACKEND_PORT is free …"
+PORT_PIDS=$(lsof -tiTCP:$BACKEND_PORT -sTCP:LISTEN 2>/dev/null || true)
+if [ -n "$PORT_PIDS" ]; then
+  echo "[run.sh] Port $BACKEND_PORT in use by PID(s): $PORT_PIDS – terminating…"
+  # Best-effort graceful kill
+  kill $PORT_PIDS 2>/dev/null || true
+  sleep 0.5
+  # Force kill if still present
+  REMAINING=$(lsof -tiTCP:$BACKEND_PORT -sTCP:LISTEN 2>/dev/null || true)
+  if [ -n "$REMAINING" ]; then
+    echo "[run.sh] Forcing termination of PID(s): $REMAINING"
+    kill -9 $REMAINING 2>/dev/null || true
+    sleep 0.2
+  fi
+fi
+echo "[run.sh] Port $BACKEND_PORT is available."
 
 # Build frontend ------------------------------------------------------------
 echo "[run.sh] Building frontend …"
@@ -24,30 +49,8 @@ popd >/dev/null
 
 echo "[run.sh] Frontend build completed."
 
-# Start backend -------------------------------------------------------------
-echo "[run.sh] Starting FastAPI backend on :$BACKEND_PORT …"
-python3 main.py run-api --host 0.0.0.0 --port "$BACKEND_PORT" &
-API_PID=$!
+# Start unified backend (serves API + static assets) -----------------------
+echo "[run.sh] Starting FastAPI (API + Frontend) on :$BACKEND_PORT …"
+python3 main.py run-api --host 0.0.0.0 --port "$BACKEND_PORT"
 
-# Start static server for frontend -----------------------------------------
-echo "[run.sh] Serving frontend dist on :$FRONTEND_PORT …"
-npx serve -s "$ROOT_DIR/frontend/dist" -l "$FRONTEND_PORT" &
-FE_PID=$!
-
-echo "[run.sh] ------------------------------------------------------------"
-echo "Frontend 👉 http://localhost:$FRONTEND_PORT"
-echo "Backend  👉 http://localhost:$BACKEND_PORT/docs"  # FastAPI docs
-echo "Press Ctrl+C to stop both."
-echo "[run.sh] ------------------------------------------------------------"
-
-# Cleanup on exit -----------------------------------------------------------
-cleanup() {
-  echo "\n[run.sh] Shutting down …"
-  kill "$API_PID" "$FE_PID" 2>/dev/null || true
-  wait "$API_PID" "$FE_PID" 2>/dev/null || true
-  echo "[run.sh] Done."
-}
-trap cleanup SIGINT SIGTERM
-
-# Wait forever (until Ctrl+C)
-wait 
+echo "[run.sh] Server exited." 
